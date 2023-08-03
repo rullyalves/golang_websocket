@@ -27,13 +27,13 @@ func NewChannel(channelID string) *Channel {
 	}
 }
 
-func (channel *Channel) Start(removeSession func(sessionID string, socket *websocket.Conn)) {
+func (channel *Channel) Start(removeSession func(sessionID string)) {
 	for {
 		select {
 		case message := <-channel.broadcast:
 			for sessionID, socket := range channel.subscribers {
 				if err := socket.WriteJSON(message); err != nil {
-					removeSession(sessionID, socket)
+					removeSession(sessionID)
 					socket.Close()
 				}
 			}
@@ -42,7 +42,7 @@ func (channel *Channel) Start(removeSession func(sessionID string, socket *webso
 			channel.subscribers[subscriber.SessionID] = socket
 
 			socket.SetCloseHandler(func(code int, text string) error {
-				removeSession(subscriber.SessionID, socket)
+				removeSession(subscriber.SessionID)
 				return nil
 			})
 
@@ -78,7 +78,7 @@ func (router *Router) Unsubscribe(channelID string, sessionID string) {
 	router.channels[channelID].unsubscribe <- sessionID
 }
 
-func (router *Router) RemoveSubscriptions(sessionID string, socket *websocket.Conn) {
+func (router *Router) RemoveSubscriptions(sessionID string) {
 
 	for _, channel := range router.channels {
 		channel.unsubscribe <- sessionID
