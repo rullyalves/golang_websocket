@@ -25,15 +25,15 @@ func NewRouter() *Router {
 }
 
 func (router *Router) Unsubscribe(subscriptionID string) {
-	channel, ok := router.subscriptions.Load(subscriptionID)
+
+	channel, ok := router.subscriptions.LoadAndDelete(subscriptionID)
 	if !ok {
 		return
 	}
-	router.subscriptions.Delete(subscriptionID)
 	close(channel.(chan interface{}))
 }
 
-func (router *Router) Subscribe(channelID string, subscriber *Subscriber) {
+func (router *Router) Subscribe(channelID string, subscriber *Subscriber, params *map[string]interface{}) {
 
 	handler, ok := router.handlers.Load(channelID)
 
@@ -41,14 +41,30 @@ func (router *Router) Subscribe(channelID string, subscriber *Subscriber) {
 		return
 	}
 
-	channel := handler.(func(context.Context) chan interface{})(context.Background())
+	newContext := context.Background()
+	newContext = context.WithValue(newContext, "params", params)
+	newContext = context.WithValue(newContext, "subscriptionId", subscriber.SubscriptionID)
 
-	router.subscriptions.Store(subscriber.SubscriptionID, channel)
+	channel, dispose := handler.(func(context context.Context) (chan interface{}, func()))(newContext)
 
-	go router.Listen(channel, subscriber)
+	_, loaded := router.subscriptions.LoadOrStore(subscriber.SubscriptionID, channel)
+	if !loaded {
+		go router.Listen(channel, subscriber, dispose)
+	}
 }
 
-func (router *Router) Listen(channel chan interface{}, subscriber *Subscriber) {
+func (router *Router) Listen(channel chan interface{}, subscriber *Subscriber, dispose func()) {
+
+	defer func() {
+		router.subscriptions.Delete(subscriber.SubscriptionID)
+
+		if dispose != nil {
+			dispose()
+		}
+
+		fmt.Println("defer listen")
+	}()
+
 	socket := subscriber.socket
 
 	socket.SetCloseHandler(func(code int, text string) error {
@@ -61,7 +77,7 @@ func (router *Router) Listen(channel chan interface{}, subscriber *Subscriber) {
 		select {
 		case value, ok := <-channel:
 			if !ok {
-				fmt.Println("closed channel - request closing socket")
+				fmt.Println("closed channel")
 				return
 			}
 			err := socket.WriteJSON(value)
@@ -75,6 +91,6 @@ func (router *Router) Listen(channel chan interface{}, subscriber *Subscriber) {
 	}
 }
 
-func (router *Router) Handle(channelID string, handler func(context context.Context) chan interface{}) {
+func (router *Router) Handle(channelID string, handler func(context context.Context) (chan interface{}, func())) {
 	router.handlers.Store(channelID, handler)
 }

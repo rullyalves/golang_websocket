@@ -17,6 +17,7 @@ type ChannelRequest struct {
 	SubscriptionID string
 	ChannelID      string
 	RequestType    RequestType
+	Params         *map[string]interface{}
 }
 
 func readWebsocket(socket *websocket.Conn, router *Router) {
@@ -37,7 +38,9 @@ func readWebsocket(socket *websocket.Conn, router *Router) {
 			router.Subscribe(channelID, &Subscriber{
 				socket:         socket,
 				SubscriptionID: SubscriptionID,
-			})
+			},
+				request.Params,
+			)
 		case unsubscribe:
 			router.Unsubscribe(SubscriptionID)
 		}

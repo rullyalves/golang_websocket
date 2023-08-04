@@ -33,4 +33,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-require golang.org/x/sys v0.8.0 // indirect
+require (
+	github.com/cornelk/hashmap v1.0.8 // indirect
+	golang.org/x/sys v0.8.0 // indirect
+)
