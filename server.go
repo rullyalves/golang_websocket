@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"github.com/gin-gonic/gin"
 	"go_ws/websocket"
 	"log"
@@ -18,16 +19,26 @@ func main() {
 
 	router := gin.Default()
 
-	channelRouter := websocket.NewRouter()
+	wsRouter := websocket.NewRouter()
 
-	go channelRouter.Start()
+	wsRouter.Handle("deliveries", func(context context.Context) chan interface{} {
+		channel := make(chan interface{})
+		go func() {
+			channel <- "hello man"
+		}()
+		return channel
+	})
 
-	channelRouter.Register(
-		*websocket.NewChannel("2"),
-	)
+	wsRouter.Handle("messages", func(context context.Context) chan interface{} {
+		channel := make(chan interface{})
+		go func() {
+			channel <- "hello man"
+		}()
+		return channel
+	})
 
 	router.GET("/ws", func(context *gin.Context) {
-		websocket.HandleWs(context.Writer, context.Request, channelRouter)
+		websocket.HandleWs(context.Writer, context.Request, wsRouter)
 	})
 
 	log.Printf("connect to http://localhost:%s/", port)

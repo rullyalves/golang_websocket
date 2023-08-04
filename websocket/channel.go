@@ -1,118 +1,80 @@
 package websocket
 
 import (
+	"context"
+	"fmt"
 	"github.com/gorilla/websocket"
+	"sync"
 )
 
-type Filter func(message interface{}) bool
-
 type Subscriber struct {
-	SessionID string
-	socket    *websocket.Conn
-	filter    *Filter
-}
-
-type Channel struct {
-	subscribe   chan *Subscriber
-	unsubscribe chan string
-	broadcast   chan interface{}
-	ChannelID   string
-	subscribers map[string]*Subscriber
-}
-
-func NewChannel(channelID string) *Channel {
-	return &Channel{
-		ChannelID:   channelID,
-		unsubscribe: make(chan string),
-		subscribe:   make(chan *Subscriber),
-		subscribers: map[string]*Subscriber{},
-		broadcast:   make(chan interface{}),
-	}
-}
-
-func (channel *Channel) Start(removeSession func(sessionID string)) {
-	for {
-		select {
-		case message := <-channel.broadcast:
-			for sessionID, subscriber := range channel.subscribers {
-
-				socket := subscriber.socket
-				filter := *subscriber.filter
-
-				var ok = true
-				if filter != nil {
-					ok = filter(message)
-				}
-
-				if !ok {
-					continue
-				}
-
-				if err := socket.WriteJSON(message); err != nil {
-					removeSession(sessionID)
-					socket.Close()
-				}
-			}
-		case subscriber := <-channel.subscribe:
-			socket := subscriber.socket
-			channel.subscribers[subscriber.SessionID] = subscriber
-
-			socket.SetCloseHandler(func(code int, text string) error {
-				removeSession(subscriber.SessionID)
-				return nil
-			})
-
-		case sessionID := <-channel.unsubscribe:
-			delete(channel.subscribers, sessionID)
-		}
-	}
+	SubscriptionID string
+	socket         *websocket.Conn
 }
 
 type Router struct {
-	subscribe   chan Channel
-	unsubscribe chan Channel
-	channels    map[string]Channel
+	handlers      sync.Map
+	subscriptions sync.Map
 }
 
 func NewRouter() *Router {
 	return &Router{
-		subscribe:   make(chan Channel),
-		unsubscribe: make(chan Channel),
-		channels:    map[string]Channel{},
+		handlers:      sync.Map{},
+		subscriptions: sync.Map{},
 	}
 }
 
-func (router *Router) Broadcast(channelID string, message interface{}) {
-	router.channels[channelID].broadcast <- message
+func (router *Router) Unsubscribe(subscriptionID string) {
+	channel, ok := router.subscriptions.Load(subscriptionID)
+	if !ok {
+		return
+	}
+	router.subscriptions.Delete(subscriptionID)
+	close(channel.(chan interface{}))
 }
 
 func (router *Router) Subscribe(channelID string, subscriber *Subscriber) {
-	router.channels[channelID].subscribe <- subscriber
-}
 
-func (router *Router) Unsubscribe(channelID string, sessionID string) {
-	router.channels[channelID].unsubscribe <- sessionID
-}
+	handler, ok := router.handlers.Load(channelID)
 
-func (router *Router) RemoveSubscriptions(sessionID string) {
-
-	for _, channel := range router.channels {
-		channel.unsubscribe <- sessionID
+	if !ok {
+		return
 	}
+
+	channel := handler.(func(context.Context) chan interface{})(context.Background())
+
+	router.subscriptions.Store(channelID, channel)
+
+	go router.Listen(channel, subscriber)
 }
 
-func (router *Router) Register(channel Channel) {
-	router.subscribe <- channel
-}
+func (router *Router) Listen(channel chan interface{}, subscriber *Subscriber) {
+	socket := subscriber.socket
 
-func (router *Router) Start() {
+	socket.SetCloseHandler(func(code int, text string) error {
+		fmt.Println("closing socket")
+		close(channel)
+		return nil
+	})
+
 	for {
 		select {
-		case channel := <-router.subscribe:
-			router.channels[channel.ChannelID] = channel
-			go channel.Start(router.RemoveSubscriptions)
-		case channel := <-router.unsubscribe:
-			delete(router.channels, channel.ChannelID)
+		case value, ok := <-channel:
+			if !ok {
+				fmt.Println("closed channel - request closing socket")
+				socket.Close()
+			}
+			err := socket.WriteJSON(value)
+			if err != nil {
+				fmt.Println(err)
+				fmt.Println("request closing socket")
+				socket.Close()
+				return
+			}
 		}
 	}
+}
+
+func (router *Router) Handle(channelID string, handler func(context context.Context) chan interface{}) {
+	router.handlers.Store(channelID, handler)
 }

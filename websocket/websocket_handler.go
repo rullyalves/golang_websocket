@@ -11,13 +11,12 @@ type RequestType string
 const (
 	subscribe   RequestType = "subscribe"
 	unsubscribe RequestType = "unsubscribe"
-	broadcast   RequestType = "broadcast"
 )
 
 type ChannelRequest struct {
-	SessionID   string
-	ChannelID   string
-	RequestType RequestType
+	SubscriptionID string
+	ChannelID      string
+	RequestType    RequestType
 }
 
 func readWebsocket(socket *websocket.Conn, router *Router) {
@@ -31,25 +30,16 @@ func readWebsocket(socket *websocket.Conn, router *Router) {
 		}
 
 		channelID := request.ChannelID
-		sessionID := request.SessionID
+		SubscriptionID := request.SubscriptionID
 
 		switch request.RequestType {
 		case subscribe:
-			var filter Filter = func(message interface{}) bool {
-
-				fmt.Println(message)
-
-				return true
-			}
 			router.Subscribe(channelID, &Subscriber{
-				socket:    socket,
-				SessionID: sessionID,
-				filter:    &filter,
+				socket:         socket,
+				SubscriptionID: SubscriptionID,
 			})
 		case unsubscribe:
-			router.Unsubscribe(channelID, sessionID)
-		case broadcast:
-			router.Broadcast(channelID, request)
+			router.Unsubscribe(SubscriptionID)
 		}
 	}
 }
