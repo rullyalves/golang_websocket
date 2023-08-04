@@ -4,9 +4,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type Filter func(message interface{}) bool
+
 type Subscriber struct {
 	SessionID string
 	socket    *websocket.Conn
+	filter    *Filter
 }
 
 type Channel struct {
@@ -14,7 +17,7 @@ type Channel struct {
 	unsubscribe chan string
 	broadcast   chan interface{}
 	ChannelID   string
-	subscribers map[string]*websocket.Conn
+	subscribers map[string]*Subscriber
 }
 
 func NewChannel(channelID string) *Channel {
@@ -22,7 +25,7 @@ func NewChannel(channelID string) *Channel {
 		ChannelID:   channelID,
 		unsubscribe: make(chan string),
 		subscribe:   make(chan *Subscriber),
-		subscribers: map[string]*websocket.Conn{},
+		subscribers: map[string]*Subscriber{},
 		broadcast:   make(chan interface{}),
 	}
 }
@@ -31,7 +34,20 @@ func (channel *Channel) Start(removeSession func(sessionID string)) {
 	for {
 		select {
 		case message := <-channel.broadcast:
-			for sessionID, socket := range channel.subscribers {
+			for sessionID, subscriber := range channel.subscribers {
+
+				socket := subscriber.socket
+				filter := *subscriber.filter
+
+				var ok = true
+				if filter != nil {
+					ok = filter(message)
+				}
+
+				if !ok {
+					continue
+				}
+
 				if err := socket.WriteJSON(message); err != nil {
 					removeSession(sessionID)
 					socket.Close()
@@ -39,7 +55,7 @@ func (channel *Channel) Start(removeSession func(sessionID string)) {
 			}
 		case subscriber := <-channel.subscribe:
 			socket := subscriber.socket
-			channel.subscribers[subscriber.SessionID] = socket
+			channel.subscribers[subscriber.SessionID] = subscriber
 
 			socket.SetCloseHandler(func(code int, text string) error {
 				removeSession(subscriber.SessionID)

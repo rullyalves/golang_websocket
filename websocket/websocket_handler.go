@@ -35,9 +35,16 @@ func readWebsocket(socket *websocket.Conn, router *Router) {
 
 		switch request.RequestType {
 		case subscribe:
+			var filter Filter = func(message interface{}) bool {
+
+				fmt.Println(message)
+
+				return true
+			}
 			router.Subscribe(channelID, &Subscriber{
 				socket:    socket,
 				SessionID: sessionID,
+				filter:    &filter,
 			})
 		case unsubscribe:
 			router.Unsubscribe(channelID, sessionID)
@@ -50,7 +57,7 @@ func readWebsocket(socket *websocket.Conn, router *Router) {
 func HandleWs(writer http.ResponseWriter, request *http.Request, router *Router) {
 
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
+		CheckOrigin: func(request *http.Request) bool {
 			return true
 		},
 	}
