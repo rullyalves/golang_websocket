@@ -23,10 +23,6 @@ func main() {
 	go channelRouter.Start()
 
 	channelRouter.Register(
-		*websocket.NewChannel("1"),
-	)
-
-	channelRouter.Register(
 		*websocket.NewChannel("2"),
 	)
 
