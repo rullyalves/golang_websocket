@@ -43,7 +43,7 @@ func (router *Router) Subscribe(channelID string, subscriber *Subscriber) {
 
 	channel := handler.(func(context.Context) chan interface{})(context.Background())
 
-	router.subscriptions.Store(channelID, channel)
+	router.subscriptions.Store(subscriber.SubscriptionID, channel)
 
 	go router.Listen(channel, subscriber)
 }
@@ -62,7 +62,7 @@ func (router *Router) Listen(channel chan interface{}, subscriber *Subscriber) {
 		case value, ok := <-channel:
 			if !ok {
 				fmt.Println("closed channel - request closing socket")
-				socket.Close()
+				return
 			}
 			err := socket.WriteJSON(value)
 			if err != nil {
