@@ -14,10 +14,10 @@ const (
 )
 
 type ChannelRequest struct {
-	SubscriptionID string
-	ChannelID      string
-	RequestType    RequestType
-	Params         *map[string]interface{}
+	SubscriptionID string                  `json:"subscriptionId"`
+	ChannelID      string                  `json:"channelId"`
+	RequestType    RequestType             `json:"requestType"`
+	Params         *map[string]interface{} `json:"params"`
 }
 
 func readWebsocket(socket *websocket.Conn, router *Router) {
