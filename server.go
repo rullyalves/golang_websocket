@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 )
 
@@ -27,9 +26,7 @@ func main() {
 
 	ticker := time.NewTicker(500 * time.Millisecond)
 
-	broadcaster := broadcast.Broadcaster{
-		Listeners: sync.Map{},
-	}
+	broadcaster := broadcast.NewBroadcaster()
 
 	go func() {
 		i := 0
@@ -45,14 +42,15 @@ func main() {
 	wsRouter.Handle("deliveries", func(context context.Context) (chan interface{}, func()) {
 		subscriptionId := context.Value("subscriptionId").(string)
 		//params := context.Value("params").(*map[string]interface{})
-		//userId := (*params)["userId"]
 
 		channel := make(chan interface{})
 
 		listener := broadcast.Listener{
-			ID:      subscriptionId,
-			Channel: channel,
+			ID: subscriptionId,
 			OnData: func(message interface{}) {
+				if !broadcast.IsCOpen(channel) {
+					return
+				}
 				channel <- message
 			},
 		}
@@ -81,5 +79,4 @@ func main() {
 
 	log.Printf("connect to http://localhost:%s/", port)
 	log.Fatal(http.ListenAndServe(":"+port, router))
-
 }

@@ -15,6 +15,12 @@ type Broadcaster struct {
 	Listeners sync.Map
 }
 
+func NewBroadcaster() Broadcaster {
+	return Broadcaster{
+		Listeners: sync.Map{},
+	}
+}
+
 type Listener struct {
 	ID      string
 	Channel chan interface{}

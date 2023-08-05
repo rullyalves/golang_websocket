@@ -41,16 +41,20 @@ func (router *Router) Subscribe(channelID string, subscriber *Subscriber, params
 		return
 	}
 
+	_, loaded := router.subscriptions.Load(subscriber.SubscriptionID)
+	if loaded {
+		return
+	}
+
 	newContext := context.Background()
 	newContext = context.WithValue(newContext, "params", params)
 	newContext = context.WithValue(newContext, "subscriptionId", subscriber.SubscriptionID)
 
 	channel, dispose := handler.(func(context context.Context) (chan interface{}, func()))(newContext)
 
-	_, loaded := router.subscriptions.LoadOrStore(subscriber.SubscriptionID, channel)
-	if !loaded {
-		go router.Listen(channel, subscriber, dispose)
-	}
+	router.subscriptions.Store(subscriber.SubscriptionID, channel)
+
+	go router.Listen(channel, subscriber, dispose)
 }
 
 func (router *Router) Listen(channel chan interface{}, subscriber *Subscriber, dispose func()) {
