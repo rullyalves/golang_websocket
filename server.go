@@ -3,16 +3,24 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"go_ws/broadcast"
-	"go_ws/websocket"
+	"go_ws/services/authentication_service"
+	"go_ws/services/chat_service"
+	"go_ws/services/profile_service"
+	"go_ws/services/relationship_service"
+	"go_ws/services/shared/validations"
+	"go_ws/shared/apis"
+	"go_ws/shared/http_router"
+	"go_ws/shared/queue"
+	"go_ws/streaming"
+	"go_ws/streaming/confirmation_service"
+	pushNotifications "go_ws/streaming/push_notifications"
+	"go_ws/streaming/shared/websocket"
 	"log"
 	"net/http"
 	"os"
-	"time"
 )
 
-const defaultPort = "8080"
+const defaultPort = "8082"
 
 func main() {
 	port := os.Getenv("PORT")
@@ -20,63 +28,51 @@ func main() {
 		port = defaultPort
 	}
 
-	router := gin.Default()
+	address := fmt.Sprintf("localhost:%v", port)
+
+	ctx := context.Background()
+
+	sqsClient, mongoDriver, neo4jDriver, err := apis.StartConnections(ctx)
+
+	if err != nil {
+		log.Fatalf("error while start database connections %v", err)
+	}
+
+	messagingClient, authClient, err := apis.StartFirebaseApis(ctx)
+
+	if err != nil {
+		log.Fatalf("error while start database connections %v", err)
+	}
+
+	validations.InitTranslations()
 
 	wsRouter := websocket.NewRouter()
 
-	ticker := time.NewTicker(500 * time.Millisecond)
+	router := http_router.New()
 
-	broadcaster := broadcast.NewBroadcaster()
+	fmt.Println(authClient)
 
-	go func() {
-		i := 0
-		for {
-			select {
-			case <-ticker.C:
-				broadcaster.Publish(i)
-			}
-			i++
-		}
-	}()
+	//	router.Use(authentication.AuthenticationMiddleware(authClient))
 
-	wsRouter.Handle("deliveries", func(context context.Context) (chan interface{}, func()) {
-		subscriptionId := context.Value("subscriptionId").(string)
-		//params := context.Value("params").(*map[string]interface{})
+	router.Get("/ws", wsRouter.HandleWs)
 
-		channel := make(chan interface{})
+	authentication_service.Handle(router, neo4jDriver, authClient)
+	profile_service.Handle(router, neo4jDriver, sqsClient)
+	chat_service.Handle(router, neo4jDriver, sqsClient)
+	relationship_service.Handle(router, neo4jDriver, sqsClient)
+	confirmation_service.Handle(router, mongoDriver)
+	streaming.Handle(wsRouter, mongoDriver)
 
-		listener := broadcast.Listener{
-			ID: subscriptionId,
-			OnData: func(message interface{}) {
-				if !broadcast.IsCOpen(channel) {
-					return
-				}
-				channel <- message
-			},
-		}
-		broadcaster.Subscribe(listener)
+	processQueue := queue.ProcessQueue(sqsClient)
+	startStreaming := streaming.StartStreamingConsumers(processQueue, mongoDriver)
 
-		return channel, func() {
-			broadcaster.Unsubscribe(listener)
-		}
-	})
+	sendNotification := pushNotifications.SendPushNotification(messagingClient)
+	sendMessage := pushNotifications.SendNotificationFromQueue(sendNotification)
 
-	wsRouter.Handle("messages", func(context context.Context) (chan interface{}, func()) {
-		subscriptionId := context.Value("subscriptionId").(string)
-		//params := context.Value("params").(*map[string]interface{})
-		//userId := (*params)["userId"]
+	go pushNotifications.StartPushConsumers(processQueue, sendMessage)
+	go startStreaming()
 
-		fmt.Println(subscriptionId)
+	log.Printf("connect to http://%s/", address)
+	log.Fatal(http.ListenAndServe(address, router))
 
-		channel := make(chan interface{})
-
-		return channel, nil
-	})
-
-	router.GET("/ws", func(context *gin.Context) {
-		websocket.HandleWs(context.Writer, context.Request, wsRouter)
-	})
-
-	log.Printf("connect to http://localhost:%s/", port)
-	log.Fatal(http.ListenAndServe(":"+port, router))
 }
